@@ -7,13 +7,11 @@ import { Auth } from '../models/auth.model.js';
 import { Student } from '../models/student.model.js';
 import { Employee } from '../models/employee.model.js';
 import { logger } from '../utils/logger.js';
-import { InvalidCredentialsError, RoleNotSupportedError, ServerError } from '../utils/error.js';
+import { InvalidCredentialsError, ServerError } from '../utils/error.js';
 
 const PEPPER = process.env.PEPPER || '';
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
-
-const SUPPORTED_EMPLOYEE_ROLES = ['Professor', 'HOD', 'AHOD', 'Admin'];
 
 export const login = async (enrollmentNumber, password, role) => {
   try {
@@ -57,29 +55,21 @@ export const login = async (enrollmentNumber, password, role) => {
       if (!user) {
         throw new ServerError('Employee record not found.');
       }
-      if (!SUPPORTED_EMPLOYEE_ROLES.includes(user.position)) {
-        throw new RoleNotSupportedError(`Access for role ${user.position} not implemented.`);
-      }
     }
 
-    // Remove sensitive fields
     delete user.password_hash;
 
     const token = jwt.sign(
       { id: authUser.id, enrollment_number: authUser.enrollment_number, role: authUser.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      JWT_SECRET
+      // { expiresIn: JWT_EXPIRES_IN }
     );
 
     logger.info(`[LOGIN_SUCCESS] User ${enrollmentNumber} logged in successfully.`);
 
     return { user, token };
   } catch (err) {
-    if (
-      err instanceof InvalidCredentialsError ||
-      err instanceof RoleNotSupportedError ||
-      err instanceof ServerError
-    ) {
+    if (err instanceof InvalidCredentialsError || err instanceof ServerError) {
       logger.warn(`[LOGIN_FAILED] ${err.message}`);
       throw err;
     }

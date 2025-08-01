@@ -2,7 +2,7 @@
 
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import logger from '../utils/logger.js';
+import { logger } from '../utils/logger.js';    // <-- named import
 
 dotenv.config();
 
@@ -23,14 +23,17 @@ export const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
-      logger.warn(`Unauthorized access attempt: Invalid token. IP: ${req.ip}, Error: ${err.message}`);
+      logger.warn(
+        `Unauthorized access attempt: Invalid token. IP: ${req.ip}, Error: ${err.message}`
+      );
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    // decoded.enrollment_number matches the key used when signing
     req.user = {
       id: decoded.id,
       role: decoded.role,
-      enrollmentNumber: decoded.enrollmentNumber
+      enrollmentNumber: decoded.enrollment_number, // <-- aligned key name
     };
 
     next();

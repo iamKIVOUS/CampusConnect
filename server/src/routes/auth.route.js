@@ -4,7 +4,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { celebrate, Joi, Segments } from 'celebrate';
 import * as authController from '../controllers/auth.controller.js';
-
+import { logout } from '../controllers/logout.controller.js';
 const router = Router();
 
 // Rate limiter middleware to protect against brute-force login attempts
@@ -39,4 +39,8 @@ router.post(
   authController.forgotPassword
 );
 
+router.post(
+  '/logout',
+  logout
+);
 export default router;
