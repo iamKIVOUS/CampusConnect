@@ -1,7 +1,8 @@
+import 'package:campus_connect/screens/dashboard_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import './screens/login_screen.dart';
-import './screens/profile_screen.dart';
+//import './screens/profile_screen.dart';
 import './providers/auth_provider.dart';
 
 void main() async {
@@ -34,7 +35,7 @@ class CampusConnectApp extends StatelessWidget {
       home: Consumer<AuthProvider>(
         builder: (context, authProvider, _) {
           return authProvider.isLoggedIn
-              ? const ProfileScreen()
+              ? const DashboardScreen()
               : const LoginScreen();
         },
       ),
