@@ -10,11 +10,13 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoggedIn = false;
   String? _token;
   Map<String, dynamic>? _user;
+  dynamic _routine; // Changed from Map<String, dynamic>? to dynamic
   String? _photoPath;
 
   bool get isLoggedIn => _isLoggedIn;
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
+  dynamic get routine => _routine;
   String? get photoPath => _photoPath;
 
   Future<void> loadUserData() async {
@@ -22,13 +24,19 @@ class AuthProvider extends ChangeNotifier {
     final token = prefs.getString('token');
     final userData = prefs.getString('user');
     final photoPath = prefs.getString('photoPath');
+    final routineData = prefs.getString('routine');
 
-    if (token != null && userData != null) {
-      _token = token;
-      _user = jsonDecode(userData);
-      _photoPath = photoPath;
-      _isLoggedIn = true;
-      notifyListeners();
+    if (token != null && userData != null && routineData != null) {
+      try {
+        _token = token;
+        _user = jsonDecode(userData);
+        _routine = jsonDecode(routineData);
+        _photoPath = photoPath;
+        _isLoggedIn = true;
+        notifyListeners();
+      } catch (e) {
+        debugPrint('Error parsing saved user data: $e');
+      }
     }
   }
 
@@ -42,8 +50,8 @@ class AuthProvider extends ChangeNotifier {
 
       final user = response['user'];
       final token = response['token'];
+      final routine = response['routine'];
 
-      // Save profile photo locally if photo_url exists
       String? photoUrl = user['photo_url'];
       String? savedPhotoPath;
 
@@ -65,9 +73,11 @@ class AuthProvider extends ChangeNotifier {
       if (savedPhotoPath != null) {
         await prefs.setString('photoPath', savedPhotoPath);
       }
+      await prefs.setString('routine', jsonEncode(routine));
 
       _token = token;
       _user = user;
+      _routine = routine;
       _photoPath = savedPhotoPath;
       _isLoggedIn = true;
       notifyListeners();
@@ -96,15 +106,22 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await ApiService.logout(prefs.getString('token') ?? '');
+    try {
+      await ApiService.logout(prefs.getString('token') ?? '');
+    } catch (e) {
+      debugPrint('Logout API failed: $e');
+    }
+
     await prefs.remove('token');
     await prefs.remove('user');
     await prefs.remove('photoPath');
+    await prefs.remove('routine');
 
     _isLoggedIn = false;
     _token = null;
     _user = null;
     _photoPath = null;
+    _routine = null;
 
     notifyListeners();
   }
