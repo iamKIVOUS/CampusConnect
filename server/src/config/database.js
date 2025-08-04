@@ -65,6 +65,7 @@ export async function syncDatabase(options = {}) {
   await import('../models/auth.model.js');
   await import('../models/student.model.js');
   await import('../models/employee.model.js');
+  await import('../models/routine.model.js');
 
   console.log(chalk.yellow('[DB] Applying schema changes…'));
   await sequelize.sync({ alter: true, ...options });

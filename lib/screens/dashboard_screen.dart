@@ -1,6 +1,7 @@
 //import "package:campus_connect/screens/profile_screen.dart";
 import "dart:io";
 
+import "package:campus_connect/screens/chat_screen.dart";
 import "package:campus_connect/screens/login_screen.dart";
 import "package:campus_connect/screens/profile_screen.dart";
 import "package:flutter/material.dart";
@@ -53,7 +54,7 @@ class DashboardScreen extends StatelessWidget {
             icon: const Icon(Icons.chat),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              MaterialPageRoute(builder: (context) => const ChatScreen()),
             ),
           ),
         ],

@@ -22,9 +22,9 @@ export const login = async (req, res, next) => {
   }
 
   try {
-    const { user, token } = await authService.login(enrollment_number, password, role);
+    const { user, routine, token } = await authService.login(enrollment_number, password, role);
     logger.info(`[LOGIN] Success for ${enrollment_number}`);
-    return res.status(200).json({ token, user });
+    return res.status(200).json({ token, user, routine });
   } catch (err) {
     if (err instanceof InvalidCredentialsError) {
       logger.warn(`[LOGIN FAILED] ${err.message}`);
