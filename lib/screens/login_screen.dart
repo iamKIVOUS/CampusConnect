@@ -19,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
   bool _obscurePassword = true;
 
-  Future<void> _handleLogin(BuildContext context) async {
+  Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
     FocusScope.of(context).unfocus(); // Dismiss keyboard
@@ -36,8 +36,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _selectedRole,
     );
 
+    if (!mounted) return; // Check mounted AFTER await
+
     if (success) {
-      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const DashboardScreen()),
@@ -145,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     Text(_error!, style: const TextStyle(color: Colors.red)),
                   const SizedBox(height: 12),
                   ElevatedButton(
-                    onPressed: _isLoading ? null : () => _handleLogin(context),
+                    onPressed: _isLoading ? null : _handleLogin,
                     child: _isLoading
                         ? const SizedBox(
                             height: 20,
