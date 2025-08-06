@@ -10,12 +10,13 @@ import { RoutineSchedule } from '../models/routine.model.js';
 import { logger } from '../utils/logger.js';
 import { InvalidCredentialsError, ServerError } from '../utils/error.js';
 import { Op } from 'sequelize';
+import { saveSession } from './session.service.js';
 
 const PEPPER = process.env.PEPPER || '';
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
-export const login = async (enrollmentNumber, password, role) => {
+export const login = async (enrollmentNumber, password, role, ip) => {
   try {
     // Validate inputs
     if (
@@ -28,7 +29,7 @@ export const login = async (enrollmentNumber, password, role) => {
       throw new InvalidCredentialsError('Invalid enrollment number, password, or role.');
     }
 
-    logger.info(`[LOGIN_ATTEMPT] Enrollment: ${enrollmentNumber}, Role: ${role}`);
+    logger.info(`[LOGIN_ATTEMPT] Enrollment: ${enrollmentNumber}, Role: ${role}, IP: ${ip}`);
 
     const authUser = await Auth.findOne({ where: { enrollment_number: enrollmentNumber } });
 
@@ -90,8 +91,9 @@ export const login = async (enrollmentNumber, password, role) => {
       JWT_SECRET
       // { expiresIn: JWT_EXPIRES_IN }
     );
+    await saveSession(token, {ip: ip});
 
-    logger.info(`[LOGIN_SUCCESS] User ${enrollmentNumber} logged in successfully.`);
+    logger.info(`[LOGIN_SUCCESS] User ${enrollmentNumber} logged in successfully. ip: ${ip}`);
 
     return { user, routine, token };
   } catch (err) {

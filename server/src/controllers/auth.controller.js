@@ -1,11 +1,10 @@
 // server/src/controllers/auth.controller.js
 
 import * as authService from '../services/auth.service.js';
-import { logger } from '../utils/logger.js';
 import {
   InvalidCredentialsError,
   RoleNotSupportedError,
-  ServerError
+  ServerError,
 } from '../utils/error.js';
 
 /**
@@ -17,25 +16,46 @@ export const login = async (req, res, next) => {
 
   // Input validation
   if (!enrollment_number || !password || !role) {
-    logger.warn('[LOGIN] Missing credentials or role.');
+    req.logger?.warn('[LOGIN] Missing credentials or role.');
     return res.status(400).json({ error: 'Missing enrollment number, password, or role.' });
   }
 
   try {
-    const { user, routine, token } = await authService.login(enrollment_number, password, role);
-    logger.info(`[LOGIN] Success for ${enrollment_number}`);
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    const { user, routine, token } = await authService.login(
+      enrollment_number,
+      password,
+      role,
+      ip
+    );
+
+    req.logger?.info('[LOGIN] Success', {
+      enrollment_number,
+      ip,
+      role,
+      token,
+    });
+
     return res.status(200).json({ token, user, routine });
   } catch (err) {
     if (err instanceof InvalidCredentialsError) {
-      logger.warn(`[LOGIN FAILED] ${err.message}`);
-      return res.status(401).json({ error: 'Invalid enrollment, password, or role.' });
+      req.logger?.warn('[LOGIN FAILED] Invalid credentials.', { enrollment_number, role });
+      return res.status(401).json({ error: err.message });
     }
+
     if (err instanceof RoleNotSupportedError) {
-      logger.warn(`[LOGIN FAILED] ${err.message}`);
-      return res.status(403).json({ error: 'Role not implemented.' });
+      req.logger?.warn('[LOGIN FAILED] Unsupported role.', { enrollment_number, role });
+      return res.status(403).json({ error: err.message });
     }
-    // Unexpected errors
-    logger.error(`[LOGIN ERROR] ${err.message}`, { stack: err.stack });
+
+    req.logger?.error('[LOGIN ERROR]', {
+      message: err.message,
+      stack: err.stack,
+      enrollment_number,
+      role,
+    });
+
     return next(new ServerError());
   }
 };
@@ -44,7 +64,10 @@ export const login = async (req, res, next) => {
  * POST /api/auth/forgot-password
  * Stub for password reset flow
  */
-export const forgotPassword = (req, res, next) => {
-  logger.info('[FORGOT PASSWORD] Endpoint hit.');
+export const forgotPassword = (req, res) => {
+  req.logger?.info('[FORGOT PASSWORD] Endpoint hit.', {
+    ip: req.ip,
+    time: new Date().toISOString(),
+  });
   return res.status(501).json({ message: 'Forgot password functionality is not yet implemented.' });
 };

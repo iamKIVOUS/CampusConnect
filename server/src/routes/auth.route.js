@@ -1,46 +1,46 @@
 // server/src/routes/auth.route.js
-
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { celebrate, Joi, Segments } from 'celebrate';
 import * as authController from '../controllers/auth.controller.js';
+import { authenticateToken } from '../middleware/auth.middleware.js';
 import { logout } from '../controllers/logout.controller.js';
+
 const router = Router();
 
-// Rate limiter middleware to protect against brute-force login attempts
-const loginRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login requests per windowMs
-  message: 'Too many login attempts. Please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false
+// Rate limiter for login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 5,
+  message: { error: 'Too many login attempts, please try again later.' },
 });
 
-// Joi validation schema for login payload
+// Validate login payload
 const loginValidation = celebrate({
-  [Segments.BODY]: Joi.object().keys({
-    enrollment_number: Joi.string().required(),
+  [Segments.BODY]: Joi.object({
+    enrollment_number: Joi.string().alphanum().required(),
     password: Joi.string().required(),
-    role: Joi.string().valid('student', 'employee').required()
-  })
+    role: Joi.string().valid('student','employee').required(),
+  }),
 });
 
-// POST /login route
+// Auth routes
 router.post(
   '/login',
-  loginRateLimiter,       // Protect from brute force
-  loginValidation,        // Validate input structure
-  authController.login    // Login handler
+  loginLimiter,
+  loginValidation,
+  authController.login
 );
 
-// POST /forgot-password route (currently a stub)
+router.post(
+  '/logout',
+  authenticateToken,
+  logout
+);
+
 router.post(
   '/forgot-password',
   authController.forgotPassword
 );
 
-router.post(
-  '/logout',
-  logout
-);
 export default router;
