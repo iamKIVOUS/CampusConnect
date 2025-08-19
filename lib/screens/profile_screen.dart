@@ -24,18 +24,18 @@ class ProfileScreen extends StatelessWidget {
       final fields = <Widget>[];
 
       void addField(String label, dynamic value) {
-        if (value != null) {
+        if (value != null && value.toString().trim().isNotEmpty) {
           fields.add(
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "$label: ",
+                    '$label: ',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  Expanded(child: Text("$value")),
+                  Expanded(child: Text(value.toString())),
                 ],
               ),
             ),
@@ -43,17 +43,19 @@ class ProfileScreen extends StatelessWidget {
         }
       }
 
-      addField("Enrollment Number", user['enrollment_number']);
-      addField("Registration Number", user['registration_number']);
-      addField("Name", user['name']);
-      addField("Course", user['course']);
-      addField("Year", user['year']);
-      addField("Stream", user['stream']);
-      addField("Section", user['section']);
-      addField("Roll Number", user['roll_number']);
-      addField("Year of Joining", user['year_of_joining']);
-      addField("Department", user['department']);
-      addField("Role", user['role']);
+      addField('Enrollment Number', user['enrollment_number']);
+      addField('Registration Number', user['registration_number']);
+      addField('Name', user['name']);
+      addField('Email', user['email']);
+      addField('Phone', user['phone']);
+      addField('Course', user['course']);
+      addField('Year', user['year']);
+      addField('Stream', user['stream']);
+      addField('Section', user['section']);
+      addField('Roll Number', user['roll_number']);
+      addField('Year of Joining', user['year_of_joining']);
+      addField('Department', user['department']);
+      addField('Role', user['role']);
 
       return fields;
     }
@@ -62,16 +64,16 @@ class ProfileScreen extends StatelessWidget {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Confirm Logout"),
-          content: const Text("Are you sure you want to log out?"),
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to log out?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
+              child: const Text('Cancel'),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text("Logout"),
+              child: const Text('Logout'),
             ),
           ],
         ),
@@ -80,13 +82,35 @@ class ProfileScreen extends StatelessWidget {
       if (confirmed == true) {
         await authProvider.logout();
         if (context.mounted) {
-          Navigator.pushReplacement(
-            context,
+          // Make login screen the new root so user cannot navigate back
+          Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (_) => false,
           );
         }
       }
     }
+
+    // Safe photo check (works even if photoPath is null or invalid)
+    Widget buildAvatar() {
+      if (photoPath != null) {
+        try {
+          final file = File(photoPath);
+          if (file.existsSync()) {
+            return CircleAvatar(radius: 60, backgroundImage: FileImage(file));
+          }
+        } catch (_) {
+          // ignore file errors and fall back to default avatar
+        }
+      }
+
+      return const CircleAvatar(
+        radius: 60,
+        child: Icon(Icons.person, size: 50),
+      );
+    }
+
+    final errorColor = Theme.of(context).colorScheme.error;
 
     return Scaffold(
       appBar: AppBar(
@@ -95,6 +119,7 @@ class ProfileScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => confirmLogout(context),
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -102,25 +127,20 @@ class ProfileScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            if (photoPath != null && File(photoPath).existsSync())
-              CircleAvatar(
-                radius: 60,
-                backgroundImage: FileImage(File(photoPath)),
-              )
-            else
-              const CircleAvatar(
-                radius: 60,
-                child: Icon(Icons.person, size: 50),
-              ),
+            buildAvatar(),
             const SizedBox(height: 24),
             ...buildInfoFields(),
             const SizedBox(height: 40),
             ElevatedButton.icon(
               icon: const Icon(Icons.logout),
-              label: const Text("Logout"),
+              label: const Text('Logout'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+                backgroundColor: errorColor,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0,
+                  vertical: 12.0,
+                ),
               ),
               onPressed: () => confirmLogout(context),
             ),

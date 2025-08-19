@@ -1,10 +1,14 @@
-import "dart:io";
-import "package:flutter/material.dart";
-import "package:provider/provider.dart";
-import "package:campus_connect/screens/chat_screen.dart";
-import "package:campus_connect/screens/login_screen.dart";
-import "package:campus_connect/screens/profile_screen.dart";
+import 'dart:io';
+import 'package:campus_connect/widgets/routine_view.dart';
+import 'package:campus_connect/widgets/attendance_view.dart'; // <- added
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/routine_provider.dart';
+import '../providers/attendance_provider.dart'; // <- added for fetching summary
+import 'chat_screen.dart';
+import 'profile_screen.dart';
+import 'login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -14,31 +18,81 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late String selectedDay;
+  int _selectedIndex = 0; // 0 = Routine, 1 = Attendance
+  bool _isRoutineLoading = true;
+  String? _routineError;
 
-  final List<String> weekdays = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-  ];
-
-  final Map<int, String> periodTimings = {
-    1: '9:30 - 10:30',
-    2: '10:30 - 11:30',
-    3: '11:30 - 12:30',
-    4: '13:30 - 14:20',
-    5: '14:20 - 15:10',
-    6: '15:10 - 16:00',
-  };
+  // Attendance view state
+  bool _isAttendanceLoading = false;
+  String? _attendanceError;
 
   @override
   void initState() {
     super.initState();
-    final currentDay = DateTime.now().weekday;
-    selectedDay = weekdays[(currentDay - 1).clamp(0, weekdays.length - 1)];
+    // Fetch routine data as soon as the dashboard loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchRoutineData();
+    });
+  }
+
+  Future<void> _fetchRoutineData() async {
+    final routineProvider = Provider.of<RoutineProvider>(
+      context,
+      listen: false,
+    );
+    // Ensure provider is initialized before fetching
+    if (!routineProvider.isReady) {
+      await routineProvider.init();
+    }
+
+    final success = await routineProvider.refreshRoutine();
+    if (mounted) {
+      setState(() {
+        _isRoutineLoading = false;
+        if (!success) {
+          _routineError = routineProvider.error ?? 'Failed to load routine.';
+        }
+      });
+    }
+  }
+
+  Future<void> _fetchAttendanceData() async {
+    setState(() {
+      _isAttendanceLoading = true;
+      _attendanceError = null;
+    });
+
+    final attendanceProvider = Provider.of<AttendanceProvider>(
+      context,
+      listen: false,
+    );
+
+    try {
+      if (!attendanceProvider.isInitialized) {
+        await attendanceProvider.init();
+      }
+
+      // fetchAttendanceSummary is used by the AttendanceView as well; this
+      // ensures data is warmed up and we can show errors here if required.
+      await attendanceProvider.fetchAttendanceSummary();
+
+      if (mounted) {
+        setState(() {
+          _isAttendanceLoading = false;
+          _attendanceError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isAttendanceLoading = false;
+          // Prefer provider error if available, otherwise fallback to exception text
+          _attendanceError =
+              attendanceProvider.error ??
+              'Failed to load attendance: ${e.toString()}';
+        });
+      }
+    }
   }
 
   @override
@@ -46,44 +100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
     final photoPath = authProvider.photoPath;
-    final routine = authProvider.routine;
-
-    Future<void> confirmLogout(BuildContext context) async {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text("Confirm Logout"),
-          content: const Text("Are you sure you want to log out?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text("Logout"),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed == true) {
-        await authProvider.logout();
-        if (context.mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-          );
-        }
-      }
-    }
-
-    final todayRoutine =
-        (routine as List?)
-            ?.whereType<Map<String, dynamic>>()
-            .where((item) => item['day'] == selectedDay)
-            .toList() ??
-        [];
+    final role = user?['role'] ?? 'student';
 
     return Scaffold(
       appBar: AppBar(
@@ -135,7 +152,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListTile(
               leading: const Icon(Icons.chat),
               title: const Text('Chat'),
-              onTap: () {},
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ChatScreen()),
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.logout),
@@ -145,65 +165,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 50,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: weekdays.length,
-              itemBuilder: (context, index) {
-                final day = weekdays[index];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                  child: ChoiceChip(
-                    label: Text(day),
-                    selected: selectedDay == day,
-                    onSelected: (_) => setState(() => selectedDay = day),
+      body: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            if (role == 'student')
+              ToggleButtons(
+                isSelected: [_selectedIndex == 0, _selectedIndex == 1],
+                onPressed: (index) {
+                  setState(() => _selectedIndex = index);
+                  // If Attendance tab selected, load attendance data
+                  if (index == 1) {
+                    _fetchAttendanceData();
+                  }
+                },
+                borderRadius: BorderRadius.circular(8),
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('Routine'),
                   ),
-                );
-              },
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: 6,
-              itemBuilder: (context, index) {
-                final periodNumber = index + 1;
-                Map<String, dynamic>? routineEntry = todayRoutine
-                    .cast<Map<String, dynamic>?>()
-                    .firstWhere(
-                      (r) => r?['period'] == periodNumber,
-                      orElse: () => null,
-                    );
-
-                return Card(
-                  margin: const EdgeInsets.all(8),
-                  elevation: 2,
-                  child: ListTile(
-                    title: Text(
-                      "Period $periodNumber - ${periodTimings[periodNumber] ?? ''}",
-                    ),
-                    subtitle: routineEntry != null
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Subject: ${routineEntry['subject'] ?? 'N/A'}",
-                              ),
-                              Text(
-                                "Professor: ${routineEntry['substitute_id'] ?? routineEntry['professor_id']}",
-                              ),
-                            ],
-                          )
-                        : const Text("No class scheduled."),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('Attendance'),
                   ),
-                );
-              },
-            ),
-          ),
-        ],
+                ],
+              ),
+            const SizedBox(height: 10),
+            Expanded(child: _buildContentView(role)),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildContentView(String role) {
+    if (role == 'student') {
+      if (_selectedIndex == 0) {
+        return _buildRoutineView();
+      } else {
+        return _buildAttendanceView();
+      }
+    } else {
+      // For faculty/staff, show routine by default (you can adjust later)
+      return _buildRoutineView();
+    }
+  }
+
+  Widget _buildRoutineView() {
+    if (_isRoutineLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_routineError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_routineError!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _isRoutineLoading = true;
+                  _routineError = null;
+                });
+                _fetchRoutineData();
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+    return const RoutineView();
+  }
+
+  // --- New: Attendance view builder (mirrors Routine view style) ---
+  Widget _buildAttendanceView() {
+    if (_isAttendanceLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_attendanceError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_attendanceError!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _isAttendanceLoading = true;
+                  _attendanceError = null;
+                });
+                _fetchAttendanceData();
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // No loading/error -> show the AttendanceView widget
+    return const AttendanceView();
+  }
+}
+
+Future<void> confirmLogout(BuildContext context) async {
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text("Confirm Logout"),
+      content: const Text("Are you sure you want to log out?"),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text("Cancel"),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text("Logout"),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    await authProvider.logout();
+    if (context.mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 }
