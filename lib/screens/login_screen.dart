@@ -4,7 +4,7 @@ import 'package:campus_connect/screens/dashboard_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../services/api_service.dart';
+import '../services/api_client.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

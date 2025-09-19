@@ -1,12 +1,15 @@
 import 'dart:io';
-import 'package:campus_connect/widgets/routine_view.dart';
-import 'package:campus_connect/widgets/attendance_view.dart'; // <- added
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+// Local imports
+import 'package:campus_connect/widgets/routine_view.dart';
+import 'package:campus_connect/widgets/attendance_view.dart';
 import '../providers/auth_provider.dart';
 import '../providers/routine_provider.dart';
-import '../providers/attendance_provider.dart'; // <- added for fetching summary
-import 'chat_screen.dart';
+import '../providers/attendance_provider.dart';
+// Note: We no longer need to import ConversationProvider here.
+import 'chat/conversation_list_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 
@@ -29,13 +32,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // Fetch routine data as soon as the dashboard loads
+    // Fetch initial data after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchRoutineData();
     });
   }
 
   Future<void> _fetchRoutineData() async {
+    // This logic seems fine, but ensure your RoutineProvider does not
+    // have the same initialization issues as ConversationProvider did.
+    // For now, we assume it's correct.
     final routineProvider = Provider.of<RoutineProvider>(
       context,
       listen: false,
@@ -44,7 +50,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!routineProvider.isReady) {
       await routineProvider.init();
     }
-
     final success = await routineProvider.refreshRoutine();
     if (mounted) {
       setState(() {
@@ -57,25 +62,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchAttendanceData() async {
+    // This logic also seems fine for now.
     setState(() {
       _isAttendanceLoading = true;
       _attendanceError = null;
     });
-
     final attendanceProvider = Provider.of<AttendanceProvider>(
       context,
       listen: false,
     );
-
     try {
       if (!attendanceProvider.isInitialized) {
         await attendanceProvider.init();
       }
-
-      // fetchAttendanceSummary is used by the AttendanceView as well; this
-      // ensures data is warmed up and we can show errors here if required.
       await attendanceProvider.fetchAttendanceSummary();
-
       if (mounted) {
         setState(() {
           _isAttendanceLoading = false;
@@ -86,13 +86,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _isAttendanceLoading = false;
-          // Prefer provider error if available, otherwise fallback to exception text
           _attendanceError =
               attendanceProvider.error ??
               'Failed to load attendance: ${e.toString()}';
         });
       }
     }
+  }
+
+  /// --- FINAL FIX: Simplified Navigation ---
+  /// This function now navigates directly to ChatListScreen.
+  /// It no longer needs to provide ConversationProvider because it is already
+  /// provided globally in main.dart and is listening for auth changes.
+  void _navigateToChat(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/chat-list'),
+        // No ChangeNotifierProvider needed here. ChatListScreen will find
+        // the global instance automatically.
+        builder: (context) => const ChatListScreen(),
+      ),
+    );
   }
 
   @override
@@ -108,10 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.chat),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ChatScreen()),
-            ),
+            onPressed: () => _navigateToChat(context),
           ),
         ],
       ),
@@ -134,9 +146,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Icon(Icons.person, size: 30),
                     ),
                   const SizedBox(width: 16),
-                  Text(
-                    user?['name'] ?? 'User',
-                    style: const TextStyle(fontSize: 20, color: Colors.white),
+                  Flexible(
+                    child: Text(
+                      user?['name'] ?? 'User',
+                      style: const TextStyle(fontSize: 20, color: Colors.white),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
@@ -152,10 +167,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListTile(
               leading: const Icon(Icons.chat),
               title: const Text('Chat'),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ChatScreen()),
-              ),
+              onTap: () => _navigateToChat(context),
             ),
             ListTile(
               leading: const Icon(Icons.logout),
@@ -174,7 +186,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 isSelected: [_selectedIndex == 0, _selectedIndex == 1],
                 onPressed: (index) {
                   setState(() => _selectedIndex = index);
-                  // If Attendance tab selected, load attendance data
                   if (index == 1) {
                     _fetchAttendanceData();
                   }
@@ -207,7 +218,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return _buildAttendanceView();
       }
     } else {
-      // For faculty/staff, show routine by default (you can adjust later)
+      // Assuming non-students also see the routine view.
       return _buildRoutineView();
     }
   }
@@ -240,7 +251,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return const RoutineView();
   }
 
-  // --- New: Attendance view builder (mirrors Routine view style) ---
   Widget _buildAttendanceView() {
     if (_isAttendanceLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -266,8 +276,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
     }
-
-    // No loading/error -> show the AttendanceView widget
     return const AttendanceView();
   }
 }
@@ -295,9 +303,10 @@ Future<void> confirmLogout(BuildContext context) async {
   if (confirmed == true) {
     await authProvider.logout();
     if (context.mounted) {
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
       );
     }
   }

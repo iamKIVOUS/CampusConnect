@@ -1,18 +1,15 @@
+// server/src/models/employee.model.js
 import { DataTypes } from 'sequelize';
-import { sequelize } from '../config/database.js';
-import { Auth } from './auth.model.js'; // Make sure `auth.model.js` also uses ESM and exports `Auth`
+import { sequelize } from '../config/connection.js';
 
-const Employee = sequelize.define('Employee', {
+// --- REMOVED: Import for Auth model ---
+
+export const Employee = sequelize.define('Employee', {
   enrollment_number: {
     type: DataTypes.TEXT,
     primaryKey: true,
     allowNull: false,
-    references: {
-      model: Auth,
-      key: 'enrollment_number',
-    },
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
+    // --- REMOVED: references property is now handled in the association ---
   },
   registration_number: {
     type: DataTypes.TEXT,
@@ -74,4 +71,13 @@ const Employee = sequelize.define('Employee', {
   timestamps: false,
 });
 
-export { Employee };
+// --- NEW: Static method for defining associations ---
+Employee.associate = (models) => {
+  // An Employee profile belongs to a single Auth record.
+  Employee.belongsTo(models.Auth, {
+    foreignKey: 'enrollment_number',
+    targetKey: 'enrollment_number',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+};

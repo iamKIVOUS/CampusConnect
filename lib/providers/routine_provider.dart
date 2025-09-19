@@ -2,12 +2,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../services/api_service.dart';
+import '../services/routine_service.dart'; // UPDATED: Import the new service
 
-// Adapter to allow Hive to store the routine data
+// This adapter is specific to this provider, so it's kept here for encapsulation.
 class RoutineDataAdapter extends TypeAdapter<Map<String, dynamic>> {
   @override
-  final int typeId = 0;
+  final int typeId = 0; // Ensure this typeId is unique across your Hive adapters.
 
   @override
   Map<String, dynamic> read(BinaryReader reader) {
@@ -20,11 +20,10 @@ class RoutineDataAdapter extends TypeAdapter<Map<String, dynamic>> {
   }
 }
 
-/// RoutineProvider
-/// - Fetches routine from remote API via ApiService.instance.fetchRoutine()
-/// - Caches entries into a local Hive box for cross-platform support
-/// - Exposes helpers to query by course/stream/year/section/day/period
 class RoutineProvider extends ChangeNotifier {
+  // UPDATED: Use the new dedicated service for network calls.
+  final RoutineService _routineService = RoutineService();
+
   static const _routineBoxName = 'routine_schedule';
   Box<Map<String, dynamic>>? _routineBox;
 
@@ -37,26 +36,22 @@ class RoutineProvider extends ChangeNotifier {
   bool get isReady =>
       _initialized && _routineBox != null && _routineBox!.isOpen;
 
-  /// Call this once (e.g., from main() or a splash screen)
+  /// Initializes the Hive database for local caching.
   Future<void> init() async {
     if (_initialized) return;
+    _loading = true;
+    notifyListeners();
+
     try {
-      _loading = true;
-      notifyListeners();
-
       await Hive.initFlutter();
-
-      // Register adapter if not already registered
       if (!Hive.isAdapterRegistered(0)) {
         Hive.registerAdapter(RoutineDataAdapter());
       }
-
       _routineBox = await Hive.openBox<Map<String, dynamic>>(_routineBoxName);
-
       _initialized = true;
       _error = null;
     } catch (e, st) {
-      _error = 'Failed to initialize local DB: $e';
+      _error = 'Failed to initialize routine database: $e';
       debugPrint('RoutineProvider.init error: $e\n$st');
     } finally {
       _loading = false;
@@ -64,17 +59,13 @@ class RoutineProvider extends ChangeNotifier {
     }
   }
 
-  /// Refresh remote routine and cache it locally
+  /// Fetches the latest routine from the server and updates the local cache.
   Future<bool> refreshRoutine() async {
-    // Ensure initialization is complete before proceeding
+    if (!isReady) await init();
     if (!isReady) {
-      await init();
-      // If initialization fails, we cannot proceed.
-      if (!isReady) {
-        _error = 'Local database is not available. Cannot refresh routine.';
-        notifyListeners();
-        return false;
-      }
+      _error = 'Local database is not available. Cannot refresh routine.';
+      notifyListeners();
+      return false;
     }
 
     _loading = true;
@@ -82,21 +73,17 @@ class RoutineProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final List<dynamic> remote = await ApiService.instance.fetchRoutine();
+      // UPDATED: Calls the new RoutineService instead of the old ApiService.
+      final List<dynamic> remoteRoutine = await _routineService.fetchRoutine();
 
-      // Clear existing data
       await _routineBox!.clear();
-
-      // Add new data. We use a map for efficient storage.
-      for (final item in remote) {
+      for (final item in remoteRoutine) {
         if (item is Map<String, dynamic>) {
-          // Create a unique key for each routine entry
           final key =
               '${item['course']}_${item['stream']}_${item['year']}_${item['section']}_${item['day']}_${item['period']}';
           await _routineBox!.put(key, item);
         }
       }
-
       _error = null;
       return true;
     } catch (e, st) {
@@ -109,7 +96,9 @@ class RoutineProvider extends ChangeNotifier {
     }
   }
 
-  /// Query distinct days available for given course/stream/year/section
+  // --- ALL LOCAL DATA QUERY METHODS ARE PRESERVED ---
+
+  /// Query distinct days available for a given class from the local cache.
   Future<List<String>> getAvailableDays({
     required String course,
     required String stream,
@@ -117,7 +106,6 @@ class RoutineProvider extends ChangeNotifier {
     required String section,
   }) async {
     if (!isReady) return [];
-
     final allRoutines = _routineBox!.values.where(
       (item) =>
           item['course'] == course &&
@@ -125,13 +113,10 @@ class RoutineProvider extends ChangeNotifier {
           item['year'] == year &&
           item['section'] == section,
     );
-
     final days = allRoutines
         .map((item) => item['day'].toString())
         .toSet()
         .toList();
-
-    // Sort days in correct order
     days.sort((a, b) {
       const dayOrder = {
         'Monday': 1,
@@ -144,11 +129,10 @@ class RoutineProvider extends ChangeNotifier {
       };
       return (dayOrder[a] ?? 8).compareTo(dayOrder[b] ?? 8);
     });
-
     return days;
   }
 
-  /// Get routine entries for a specific day
+  /// Get routine entries for a specific day from the local cache.
   Future<List<Map<String, dynamic>>> getRoutineForDay({
     required String course,
     required String stream,
@@ -157,7 +141,6 @@ class RoutineProvider extends ChangeNotifier {
     required String day,
   }) async {
     if (!isReady) return [];
-
     final routinesForDay = _routineBox!.values
         .where(
           (item) =>
@@ -168,16 +151,13 @@ class RoutineProvider extends ChangeNotifier {
               item['day'] == day,
         )
         .toList();
-
-    // Sort by period
     routinesForDay.sort(
       (a, b) => (a['period'] as int).compareTo(b['period'] as int),
     );
-
     return routinesForDay;
   }
 
-  /// Get single period entry (or null)
+  /// Get a single period entry from the local cache.
   Future<Map<String, dynamic>?> getRoutineForPeriod({
     required String course,
     required String stream,
@@ -191,14 +171,14 @@ class RoutineProvider extends ChangeNotifier {
     return _routineBox!.get(key);
   }
 
-  /// Clear local cached routines
+  /// Clear all local cached routines.
   Future<void> clearCache() async {
     if (!isReady) return;
     await _routineBox!.clear();
     notifyListeners();
   }
 
-  /// Close DB (call on dispose)
+  /// Close the Hive box.
   Future<void> close() async {
     if (_routineBox != null && _routineBox!.isOpen) {
       await _routineBox!.close();

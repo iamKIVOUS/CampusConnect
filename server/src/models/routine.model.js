@@ -1,9 +1,10 @@
+// server/src/models/routine.model.js
 import { DataTypes } from 'sequelize';
-import { sequelize } from '../config/database.js';
-import { Auth } from './auth.model.js'; // Assuming enrollment_number exists in auth.model.js
-import { Employee } from './employee.model.js';
+import { sequelize } from '../config/connection.js';
 
-const RoutineSchedule = sequelize.define('RoutineSchedule', {
+// --- REMOVED: Imports for Employee model ---
+
+export const RoutineSchedule = sequelize.define('RoutineSchedule', {
   id: {
     type: DataTypes.INTEGER,
     autoIncrement: true,
@@ -55,22 +56,12 @@ const RoutineSchedule = sequelize.define('RoutineSchedule', {
   professor_id: {
     type: DataTypes.TEXT,
     allowNull: false,
-    references: {
-      model: Employee,
-      key: 'enrollment_number',
-    },
-    onUpdate: 'CASCADE',
-    onDelete: 'CASCADE',
+    // --- REMOVED: references property ---
   },
   substitute_id: {
     type: DataTypes.TEXT,
     allowNull: true,
-    references: {
-      model: Employee,
-      key: 'enrollment_number',
-    },
-    onUpdate: 'CASCADE',
-    onDelete: 'SET NULL',
+    // --- REMOVED: references property ---
   },
   created_at: {
     type: DataTypes.DATE,
@@ -85,4 +76,22 @@ const RoutineSchedule = sequelize.define('RoutineSchedule', {
   timestamps: false,
 });
 
-export { RoutineSchedule };
+// --- NEW: Static method for defining associations ---
+RoutineSchedule.associate = (models) => {
+  // A routine schedule entry is taught by one professor.
+  RoutineSchedule.belongsTo(models.Employee, {
+    foreignKey: 'professor_id',
+    targetKey: 'enrollment_number',
+    onUpdate: 'CASCADE',
+    onDelete: 'CASCADE', // Or SET NULL if you want to keep the record
+  });
+
+  // A routine schedule can have one substitute professor.
+  RoutineSchedule.belongsTo(models.Employee, {
+    foreignKey: 'substitute_id',
+    targetKey: 'enrollment_number',
+    as: 'substitute', // Alias to distinguish from the main professor
+    onUpdate: 'CASCADE',
+    onDelete: 'SET NULL',
+  });
+};

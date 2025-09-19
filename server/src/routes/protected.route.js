@@ -1,16 +1,18 @@
 // server/src/routes/protected.route.js
 import { Router } from 'express';
 import { celebrate, Joi, Segments } from 'celebrate';
-import { authenticateToken } from '../middleware/auth.middleware.js';
+import chatRoutes from './chat.route.js';
+import userRoutes from './user.route.js';
 import * as routineController from '../controllers/routine.controller.js';
 import * as attendanceController from '../controllers/attendance.controller.js';
-
 const router = Router();
+
+router.use('/chat', chatRoutes);
+router.use('/users', userRoutes);
 
 // Dashboard
 router.get(
-  '/dashboard',
-  authenticateToken,
+  '/dashboard',  
   (req, res) => res.json({
     success: true,
     message: `Welcome ${req.user.enrollmentNumber} to your dashboard`,
@@ -21,28 +23,16 @@ router.get(
 // Profile
 router.get(
   '/profile',
-  authenticateToken,
   (req, res) => res.json({
     success: true,
     user: req.user,
   })
 );
 
-// Chat placeholder
-router.get(
-  '/chat',
-  authenticateToken,
-  (req, res) => res.json({
-    success: true,
-    message: 'Chat endpoint',
-    user: req.user,
-  })
-);
 
 // Get routine for authenticated user
 router.get(
   '/routine',
-  authenticateToken,
   routineController.getRoutine
 );
 
@@ -50,15 +40,12 @@ router.get(
 
 // Student summary
 router.get(
-  '/attendance',
-  authenticateToken,
-  attendanceController.attendanceSummary
+  '/attendance', attendanceController.attendanceSummary
 );
 
 // Class list (professors)
 router.get(
   '/attendance/class-list',
-  authenticateToken,
   celebrate({
     [Segments.QUERY]: Joi.object({
       course: Joi.string().required(),
@@ -73,7 +60,6 @@ router.get(
 // Submit attendance
 router.post(
   '/attendance/submit',
-  authenticateToken,
   celebrate({
     [Segments.BODY]: Joi.object({
       date: Joi.date().iso().required(),

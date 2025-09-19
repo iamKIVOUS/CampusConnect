@@ -1,18 +1,15 @@
+// server/src/models/student.model.js
 import { DataTypes } from 'sequelize';
-import { sequelize } from '../config/database.js';
-import { Auth } from './auth.model.js';
+import { sequelize } from '../config/connection.js';
 
-const Student = sequelize.define('Student', {
+// --- REMOVED: Import for Auth model ---
+
+export const Student = sequelize.define('Student', {
   enrollment_number: {
     type: DataTypes.TEXT,
     primaryKey: true,
     allowNull: false,
-    references: {
-      model: Auth,
-      key: 'enrollment_number',
-    },
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
+    // --- REMOVED: references property is now handled in the association ---
   },
   registration_number: {
     type: DataTypes.TEXT,
@@ -88,4 +85,13 @@ const Student = sequelize.define('Student', {
   timestamps: false,
 });
 
-export { Student };
+// --- NEW: Static method for defining associations ---
+Student.associate = (models) => {
+  // A Student profile belongs to a single Auth record.
+  Student.belongsTo(models.Auth, {
+    foreignKey: 'enrollment_number',
+    targetKey: 'enrollment_number',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+};

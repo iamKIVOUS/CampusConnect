@@ -1,159 +1,156 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../services/api_client.dart';
+import '../services/chat/chat_socket_service.dart';
 
 class AuthProvider extends ChangeNotifier {
+  final AuthService _authService = AuthService();
+  final ApiClient _apiClient = ApiClient.instance;
+  final ChatSocketService _socketService = ChatSocketService.instance;
+
   bool _isLoggedIn = false;
-  String? _token;
+  bool _wasLoggedIn = false;
   Map<String, dynamic>? _user;
+  String? _token;
   String? _photoPath;
 
   bool get isLoggedIn => _isLoggedIn;
-  String? get token => _token;
   Map<String, dynamic>? get user => _user;
+  String? get token => _token;
   String? get photoPath => _photoPath;
 
-  /// Load cached user/token/routine from secure storage + SharedPreferences.
-  /// Uses ApiService.instance.getStoredToken() to read the JWT from secure storage.
-  Future<void> loadUserData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  // --- DEFINITIVE FIX: The provider listens to its own state changes ---
+  AuthProvider() {
+    // This listener is now the central authority for managing the socket lifecycle.
+    addListener(_handleAuthStateChanged);
+  }
 
-      // Token is stored in secure storage by ApiService; read it from there
-      final storedToken = await ApiService.instance.getStoredToken();
-
-      final userData = prefs.getString('user');
-      final photoPath = prefs.getString('photoPath');
-
-      _token = storedToken;
-      if (userData != null) {
-        try {
-          _user = jsonDecode(userData) as Map<String, dynamic>;
-        } catch (e) {
-          debugPrint('Error decoding saved user JSON: $e');
-          _user = null;
-        }
-      } else {
-        _user = null;
+  /// This private method is the ONLY place that manages the socket connection.
+  /// It runs every time `notifyListeners()` is called.
+  void _handleAuthStateChanged() {
+    if (_wasLoggedIn != _isLoggedIn) {
+      if (_isLoggedIn && _token != null) {
+        // State changed from logged OUT to logged IN: connect the socket.
+        debugPrint("Auth state changed to LOGGED IN. Connecting socket...");
+        _socketService.connectAndListen(token: _token!);
+      } else if (!_isLoggedIn) {
+        // State changed from logged IN to logged OUT: disconnect the socket.
+        debugPrint("Auth state changed to LOGGED OUT. Disconnecting socket...");
+        _socketService.disconnect();
       }
-      _photoPath = photoPath;
-
-      // Consider the user logged in if a token exists (even if cached user is missing).
-      _isLoggedIn = (_token != null);
-
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error loading user data: $e');
+      _wasLoggedIn = _isLoggedIn;
     }
   }
 
-  /// Login using the ApiService. On success, ApiService stores the token in secure storage.
+  @override
+  void dispose() {
+    removeListener(_handleAuthStateChanged);
+    super.dispose();
+  }
+
+  Future<void> loadUserData() async {
+    final storedToken = await _apiClient.getToken();
+    if (storedToken != null) {
+      _token = storedToken;
+      _isLoggedIn = true;
+
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user');
+      if (userData != null) {
+        _user = jsonDecode(userData);
+      }
+      _photoPath = prefs.getString('photoPath');
+    }
+    // We notify listeners here. The _handleAuthStateChanged listener will
+    // be triggered automatically and connect the socket if necessary.
+    notifyListeners();
+  }
+
   Future<bool> login(String enrollment, String password, String role) async {
     try {
-      final response = await ApiService.instance.login(
+      final response = await _authService.login(
         enrollmentNumber: enrollment,
         password: password,
         role: role,
       );
 
-      // Expected shape: { "token": "...", "user": { ... } }
-      final token = response['token'] as String?;
-      final user = response['user'] as Map<String, dynamic>?;
+      _user = response['user'];
+      _token = response['token'];
+      _isLoggedIn = true;
 
-      if (token == null || user == null) {
-        debugPrint('Login response missing token or user');
-        return false;
-      }
-
-      // Optionally download profile photo (non-blocking for login)
-      String? savedPhotoPath;
-      final photoUrl =
-          user['photo_url'] as String? ?? user['photoUrl'] as String?;
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        try {
-          final savedPath = await _downloadAndSavePhoto(
-            photoUrl,
-            user['enrollment_number']?.toString() ?? enrollment,
-          );
-          savedPhotoPath = savedPath;
-        } catch (e) {
-          debugPrint('Failed to download profile photo: $e');
-        }
-      }
-
-      // Persist non-sensitive parts in SharedPreferences (token is stored securely by ApiService)
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user', jsonEncode(user));
-      if (savedPhotoPath != null) {
-        await prefs.setString('photoPath', savedPhotoPath);
+      await prefs.setString('user', jsonEncode(_user));
+
+      final photoUrl = _user?['photo_url'] as String?;
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        _photoPath = await _downloadAndSavePhoto(photoUrl, enrollment);
+        await prefs.setString('photoPath', _photoPath!);
       } else {
+        _photoPath = null;
         await prefs.remove('photoPath');
       }
 
-      // Update provider state
-      _token = token;
-      _user = user;
-
-      _photoPath = savedPhotoPath;
-      _isLoggedIn = true;
-
+      // We ONLY notify listeners. Our _handleAuthStateChanged method will
+      // be triggered automatically and will handle the socket connection.
       notifyListeners();
       return true;
     } catch (e) {
       debugPrint('Login failed: $e');
+      _isLoggedIn = false;
+      notifyListeners();
       return false;
     }
   }
 
-  /// Download profile photo and store it in application documents directory
+  Future<void> logout() async {
+    try {
+      // It's still good practice to inform the backend of the logout.
+      await _authService.logout();
+    } catch (e) {
+      debugPrint('Logout API call failed: $e');
+    }
+
+    _isLoggedIn = false;
+    _user = null;
+    _token = null;
+    _photoPath = null;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    await _apiClient.deleteToken(); // Explicitly delete from secure storage
+
+    // The listener will automatically call _socketService.disconnect()
+    // because the login state has changed from true to false.
+    notifyListeners();
+  }
+
   Future<String> _downloadAndSavePhoto(
     String url,
     String filenamePrefix,
   ) async {
-    final uri = Uri.parse(url);
-    final response = await http.get(uri);
-    if (response.statusCode == 200) {
-      final dir = await getApplicationDocumentsDirectory();
-      final safePrefix = filenamePrefix.replaceAll(
-        RegExp(r'[^A-Za-z0-9_\-]'),
-        '_',
-      );
-      final filePath = '${dir.path}/$safePrefix-profile.jpg';
-      final file = File(filePath);
-      await file.writeAsBytes(response.bodyBytes);
-      return filePath;
-    } else {
-      throw Exception(
-        'Failed to download image (status ${response.statusCode})',
-      );
-    }
-  }
-
-  /// Logout - call API to invalidate token and clear local caches
-  Future<void> logout() async {
     try {
-      await ApiService.instance.logout();
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final directory = await getApplicationDocumentsDirectory();
+        final safePrefix = filenamePrefix.replaceAll(
+          RegExp(r'[^A-Za-z0-9_\-]'),
+          '_',
+        );
+        final filePath = '${directory.path}/$safePrefix-profile.jpg';
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+        return filePath;
+      } else {
+        throw Exception('Failed to download image: ${response.statusCode}');
+      }
     } catch (e) {
-      debugPrint('Logout API failed: $e');
-      // proceed to clear local state anyway
+      debugPrint("Error downloading photo: $e");
+      rethrow;
     }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user');
-    await prefs.remove('photoPath');
-
-    _isLoggedIn = false;
-    _token = null;
-    _user = null;
-    _photoPath = null;
-
-    notifyListeners();
   }
 }

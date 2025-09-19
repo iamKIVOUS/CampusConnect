@@ -1,152 +1,235 @@
+// lib/screens/profile_screen.dart
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/chat/user_model.dart';
 import '../providers/auth_provider.dart';
+import '../services/user_service.dart';
 import 'login_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+/// A screen that displays a user's profile.
+///
+/// This screen is versatile:
+/// - If a [chatUser] is provided, it will fetch and display that user's profile.
+/// - If no [chatUser] is provided, it defaults to showing the currently
+///   logged-in user's profile from the [AuthProvider].
+class ProfileScreen extends StatefulWidget {
+  final ChatUser? chatUser;
+
+  const ProfileScreen({super.key, this.chatUser});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  Future<ChatUser?>? _profileFuture;
+  final UserApiService _userApiService = UserApiService();
+
+  bool get _isViewingOtherUser => widget.chatUser != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isViewingOtherUser) {
+      // If we are viewing another user, trigger an API call to fetch their full profile.
+      _profileFuture = _userApiService.getUserProfile(
+        widget.chatUser!.enrollmentNumber,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
-    final user = authProvider.user;
-    final photoPath = authProvider.photoPath;
-
-    if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text('No user data available.')),
+    // Determine which user data to display.
+    if (_isViewingOtherUser) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.chatUser!.name)),
+        body: FutureBuilder<ChatUser?>(
+          future: _profileFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('Failed to load profile: ${snapshot.error}'),
+              );
+            }
+            final user = snapshot.data;
+            if (user == null) {
+              return const Center(child: Text('User profile not found.'));
+            }
+            // Once data is fetched, build the profile view.
+            return _ProfileView(user: user, isCurrentUser: false);
+          },
+        ),
       );
-    }
+    } else {
+      final authProvider = Provider.of<AuthProvider>(context);
+      final userData = authProvider.user;
 
-    List<Widget> buildInfoFields() {
-      final fields = <Widget>[];
-
-      void addField(String label, dynamic value) {
-        if (value != null && value.toString().trim().isNotEmpty) {
-          fields.add(
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$label: ',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Expanded(child: Text(value.toString())),
-                ],
-              ),
-            ),
-          );
-        }
+      // Ensure user data is available before building the view.
+      if (userData == null) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('My Profile')),
+          body: const Center(child: Text('No user data available.')),
+        );
       }
 
-      addField('Enrollment Number', user['enrollment_number']);
-      addField('Registration Number', user['registration_number']);
-      addField('Name', user['name']);
-      addField('Email', user['email']);
-      addField('Phone', user['phone']);
-      addField('Course', user['course']);
-      addField('Year', user['year']);
-      addField('Stream', user['stream']);
-      addField('Section', user['section']);
-      addField('Roll Number', user['roll_number']);
-      addField('Year of Joining', user['year_of_joining']);
-      addField('Department', user['department']);
-      addField('Role', user['role']);
+      final currentUser = ChatUser(
+        enrollmentNumber: userData['enrollment_number'] ?? '',
+        name: userData['name'] ?? '',
+        photoUrl: userData['photo_url'],
+        role: userData['role'],
+      );
 
-      return fields;
-    }
-
-    Future<void> confirmLogout(BuildContext context) async {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Confirm Logout'),
-          content: const Text('Are you sure you want to log out?'),
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('My Profile'),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Logout'),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => _confirmLogout(context, authProvider),
+              tooltip: 'Logout',
             ),
           ],
         ),
-      );
-
-      if (confirmed == true) {
-        await authProvider.logout();
-        if (context.mounted) {
-          // Make login screen the new root so user cannot navigate back
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (_) => false,
-          );
-        }
-      }
-    }
-
-    // Safe photo check (works even if photoPath is null or invalid)
-    Widget buildAvatar() {
-      if (photoPath != null) {
-        try {
-          final file = File(photoPath);
-          if (file.existsSync()) {
-            return CircleAvatar(radius: 60, backgroundImage: FileImage(file));
-          }
-        } catch (_) {
-          // ignore file errors and fall back to default avatar
-        }
-      }
-
-      return const CircleAvatar(
-        radius: 60,
-        child: Icon(Icons.person, size: 50),
+        body: _ProfileView(
+          user: currentUser,
+          photoPath: authProvider.photoPath,
+          isCurrentUser: true,
+          onLogout: () => _confirmLogout(context, authProvider),
+        ),
       );
     }
+  }
 
-    final errorColor = Theme.of(context).colorScheme.error;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Profile'),
+  Future<void> _confirmLogout(
+    BuildContext context,
+    AuthProvider authProvider,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to log out?'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => confirmLogout(context),
-            tooltip: 'Logout',
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout'),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            buildAvatar(),
-            const SizedBox(height: 24),
-            ...buildInfoFields(),
+    );
+
+    if (confirmed == true && mounted) {
+      await authProvider.logout();
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (_) => false,
+      );
+    }
+  }
+}
+
+/// The reusable widget that renders the actual profile UI.
+class _ProfileView extends StatelessWidget {
+  final ChatUser user;
+  final String? photoPath;
+  final bool isCurrentUser;
+  final VoidCallback? onLogout;
+
+  const _ProfileView({
+    required this.user,
+    this.photoPath,
+    required this.isCurrentUser,
+    this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          _buildAvatar(),
+          const SizedBox(height: 24),
+          _buildInfoFields(),
+          if (isCurrentUser && onLogout != null) ...[
             const SizedBox(height: 40),
             ElevatedButton.icon(
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: errorColor,
+                backgroundColor: Theme.of(context).colorScheme.error,
                 foregroundColor: Theme.of(context).colorScheme.onError,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0,
-                  vertical: 12.0,
-                ),
               ),
-              onPressed: () => confirmLogout(context),
+              onPressed: onLogout,
             ),
           ],
-        ),
+        ],
       ),
     );
+  }
+
+  Widget _buildAvatar() {
+    // For the current user, try to load the local file.
+    if (isCurrentUser && photoPath != null) {
+      final file = File(photoPath!);
+      if (file.existsSync()) {
+        return CircleAvatar(radius: 60, backgroundImage: FileImage(file));
+      }
+    }
+    // For other users, use the photo URL from the API data.
+    if (user.photoUrl != null && user.photoUrl!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 60,
+        backgroundImage: NetworkImage(user.photoUrl!),
+      );
+    }
+    // Fallback icon if no image is available.
+    return const CircleAvatar(radius: 60, child: Icon(Icons.person, size: 60));
+  }
+
+  Widget _buildInfoFields() {
+    final fields = <Widget>[];
+    void addField(String label, dynamic value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        fields.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$label: ',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    value.toString(),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    addField('Name', user.name);
+    addField('Enrollment Number', user.enrollmentNumber);
+    addField('Role', user.role);
+
+    return Column(children: fields);
   }
 }

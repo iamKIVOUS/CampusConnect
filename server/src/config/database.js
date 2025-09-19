@@ -1,7 +1,11 @@
+// src/config/database.js
 import dotenv from 'dotenv';
-import { Sequelize } from 'sequelize';
 import { Client } from 'pg';
 import chalk from 'chalk';
+
+// --- UPDATED: Import sequelize from the new connection file ---
+import { sequelize } from './connection.js'; 
+import '../models/index.js';
 
 dotenv.config();
 
@@ -10,15 +14,11 @@ const {
   DB_PORT,
   DB_USER,
   DB_PASS,
-  DB_NAME,
-  NODE_ENV
+  DB_NAME
 } = process.env;
 
-const isProduction = NODE_ENV === 'production';
-
-// 1️⃣ Ensure the database exists
+// This function remains the same.
 async function ensureDatabaseExists() {
-  // Connect to the default 'postgres' database
   const client = new Client({
     host: DB_HOST,
     port: DB_PORT,
@@ -28,12 +28,10 @@ async function ensureDatabaseExists() {
   });
   await client.connect();
   try {
-    // Create database if it doesn't exist
     await client.query(`CREATE DATABASE ${DB_NAME}`);
     console.log(chalk.green(`[DB] Created database "${DB_NAME}".`));
   } catch (err) {
     if (err.code === '42P04') {
-      // 42P04 = duplicate_database, i.e. it already exists
       console.log(chalk.blue(`[DB] Database "${DB_NAME}" already exists.`));
     } else {
       console.error(chalk.red(`[DB ERROR] Could not create database: ${err.message}`));
@@ -44,33 +42,10 @@ async function ensureDatabaseExists() {
   }
 }
 
-// 2️⃣ Initialize Sequelize
-const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASS, {
-  host: DB_HOST,
-  port: DB_PORT,
-  dialect: 'postgres',
-  logging: !isProduction ? console.log : false,
-  pool: { max: 20, min: 5, acquire: 30000, idle: 10000 },
-  dialectOptions: isProduction ? { ssl: { require: true, rejectUnauthorized: true } } : {},
-  retry: { max: 3 },
-  define: { freezeTableName: true, underscored: true, timestamps: true },
-});
-
-// 3️⃣ Full sync routine
+// The sync function now uses the imported sequelize instance.
 export async function syncDatabase(options = {}) {
   await ensureDatabaseExists();
-
-  console.log(chalk.blue('[DB] Loading models…'));
-  // Dynamic import of your models
-  await import('../models/auth.model.js');
-  await import('../models/student.model.js');
-  await import('../models/employee.model.js');
-  await import('../models/routine.model.js');
-  await import('../models/attendance.model.js');
-
-  console.log(chalk.yellow('[DB] Applying schema changes…'));
+  console.log(chalk.yellow('[DB] Applying schema changes...'));
   await sequelize.sync({ alter: true, ...options });
   console.log(chalk.green('[DB] Database ready.'));
 }
-
-export { sequelize };

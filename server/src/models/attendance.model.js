@@ -1,9 +1,10 @@
+// server/src/models/attendance.model.js
 import { DataTypes } from 'sequelize';
-import { sequelize } from '../config/database.js';
-import { Student } from './student.model.js';
-import { Employee } from './employee.model.js';
+import { sequelize } from '../config/connection.js';
 
-const Attendance = sequelize.define('Attendance', {
+// --- REMOVED: Imports for Student and Employee models ---
+
+export const Attendance = sequelize.define('Attendance', {
   id: {
     type: DataTypes.INTEGER,
     autoIncrement: true,
@@ -12,12 +13,7 @@ const Attendance = sequelize.define('Attendance', {
   student_id: {
     type: DataTypes.TEXT,
     allowNull: false,
-    references: {
-      model: Student,
-      key: 'enrollment_number',
-    },
-    onUpdate: 'CASCADE',
-    onDelete: 'CASCADE',
+    // --- REMOVED: references property ---
   },
   course: {
     type: DataTypes.TEXT,
@@ -58,12 +54,7 @@ const Attendance = sequelize.define('Attendance', {
   professor_id: {
     type: DataTypes.TEXT,
     allowNull: false,
-    references: {
-      model: Employee,
-      key: 'enrollment_number',
-    },
-    onUpdate: 'CASCADE',
-    onDelete: 'CASCADE',
+    // --- REMOVED: references property ---
   },
   status: {
     type: DataTypes.ENUM('Present', 'Absent'),
@@ -78,4 +69,21 @@ const Attendance = sequelize.define('Attendance', {
   timestamps: false,
 });
 
-export { Attendance };
+// --- NEW: Static method for defining associations ---
+Attendance.associate = (models) => {
+  // An attendance record belongs to one student.
+  Attendance.belongsTo(models.Student, {
+    foreignKey: 'student_id',
+    targetKey: 'enrollment_number',
+    onUpdate: 'CASCADE',
+    onDelete: 'CASCADE',
+  });
+
+  // An attendance record is taken by one professor (Employee).
+  Attendance.belongsTo(models.Employee, {
+    foreignKey: 'professor_id',
+    targetKey: 'enrollment_number',
+    onUpdate: 'CASCADE',
+    onDelete: 'CASCADE',
+  });
+};
